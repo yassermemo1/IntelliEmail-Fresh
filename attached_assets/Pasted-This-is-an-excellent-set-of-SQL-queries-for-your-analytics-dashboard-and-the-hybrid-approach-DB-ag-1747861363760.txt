@@ -1,0 +1,202 @@
+This is an excellent set of SQL queries for your analytics dashboard, and the hybrid approach (DB aggregation first, then supplemental AI analysis on a sample if needed, with mock data as a final fallback) is very smart and robust! You've clearly put a lot of thought into both performance and providing meaningful insights.
+Let's analyze these queries and then suggest 10 new correlations/business analytics with their potential queries.
+Analysis of Your Current SQL Queries:
+ * Total Email Count Query:
+   * Good: Simple, efficient COUNT(*). Correctly filters by user_id (via email_accounts table – I assume emails.account_id is the FK to email_accounts.id and email_accounts.user_id links to your main users, which is a good normalized structure) and timestamp (received_at in your previous model description, ensure consistency).
+   * Note: If emails table directly has user_id or connected_account_id (which then links to user_id), the subquery might be simplified. Your model for emails had connected_account_id. Assuming email_accounts is your connected_accounts table.
+ * Topic Distribution Query:
+   * Good: Efficiently uses GROUP BY ai_suggested_category and COUNT(*) to get topic distribution. ORDER BY value DESC LIMIT 8 is good for focusing on top topics. Filtering out NULL categories is important.
+   * Consideration: "Topics" here are based on ai_suggested_category. The quality of these topics depends entirely on the LLM's categorization accuracy.
+ * Sentiment Analysis by Category Query:
+   * Good & Insightful: This is a nice query. Using a CTE (categories) to get the top 4 distinct categories first and then joining to count sentiments within those is a good approach. It gives a more focused sentiment breakdown.
+   * Performance: For very large numbers of emails, joining back to emails after identifying top categories could be intensive. Ensure ai_suggested_category and ai_sentiment on the emails table are indexed if this query becomes slow.
+ * Sample Emails for AI Analysis Query:
+   * Good (for its purpose): Retrieving the 50 most recent emails for supplemental AI analysis (when pre-processed data is insufficient) is a reasonable sampling strategy. ORDER BY timestamp DESC LIMIT 50 is correct.
+   * Note: As discussed, the primary analytics should try to leverage the already processed ai_... fields in the emails table first.
+Backup Process and Fallback Strategy:
+ * This is excellent. Using DB aggregation as the primary, OpenAI on a sample as secondary, and mock data as a tertiary fallback ensures the dashboard is always functional and informative.
+10 New Correlations and More Business Analytics with Suggested Queries:
+Here are ideas for new insights, focusing on user productivity, communication patterns, and AI effectiveness. Assume emails.connected_account_id links to connected_accounts.id, and connected_accounts.user_id links to users.id. Tasks are linked to users.id and can have source_email_id.
+ * Task Creation Source Analysis:
+   * Insight: What percentage of tasks are AI-generated vs. manually created?
+   * Query Idea:
+     SELECT 
+    SUM(CASE WHEN is_ai_generated = TRUE THEN 1 ELSE 0 END) AS ai_generated_tasks,
+    SUM(CASE WHEN is_ai_generated = FALSE THEN 1 ELSE 0 END) AS manual_tasks,
+    COUNT(*) AS total_tasks
+FROM tasks
+WHERE user_id = ${userId} 
+  AND created_at > ${startDate}; 
+
+   * Dashboard: Pie chart or bar chart.
+ * Email Volume vs. Tasks Generated Ratio:
+   * Insight: How many emails typically lead to a task? Is the AI becoming more or less "trigger-happy" over time or for certain email types?
+   * Query Idea (could be daily/weekly aggregate):
+     WITH daily_emails AS (
+    SELECT DATE_TRUNC('day', received_at) AS day, COUNT(*) AS email_count
+    FROM emails e
+    JOIN connected_accounts ca ON e.connected_account_id = ca.id
+    WHERE ca.user_id = ${userId} AND e.received_at > ${startDate}
+    GROUP BY 1
+), daily_tasks AS (
+    SELECT DATE_TRUNC('day', t.created_at) AS day, COUNT(*) AS task_count
+    FROM tasks t
+    WHERE t.user_id = ${userId} AND t.is_ai_generated = TRUE AND t.created_at > ${startDate}
+    GROUP BY 1
+)
+SELECT 
+    de.day, 
+    de.email_count, 
+    COALESCE(dt.task_count, 0) AS ai_task_count,
+    (COALESCE(dt.task_count, 0)::float / NULLIF(de.email_count, 0)::float) AS emails_per_task_ratio 
+FROM daily_emails de
+LEFT JOIN daily_tasks dt ON de.day = dt.day
+ORDER BY de.day;
+
+   * Dashboard: Line chart showing email volume and AI task volume over time.
+ * Most Actionable Senders (Senders whose emails most often lead to tasks):
+   * Insight: Identifies key communicators who drive work.
+   * Query Idea:
+     SELECT 
+    e.sender_email, 
+    COUNT(DISTINCT t.id) AS tasks_generated,
+    COUNT(DISTINCT e.id) AS emails_from_sender,
+    (COUNT(DISTINCT t.id)::float / COUNT(DISTINCT e.id)::float) AS task_per_email_ratio
+FROM emails e
+JOIN connected_accounts ca ON e.connected_account_id = ca.id
+LEFT JOIN tasks t ON e.id = t.source_email_id AND t.is_ai_generated = TRUE
+WHERE ca.user_id = ${userId} AND e.received_at > ${startDate}
+GROUP BY e.sender_email
+HAVING COUNT(DISTINCT e.id) > 5 -- Min emails from sender to be significant
+ORDER BY tasks_generated DESC, task_per_email_ratio DESC
+LIMIT 10;
+
+   * Dashboard: Top 10 list or bar chart.
+ * Task Completion Rate by AI-Suggested Priority:
+   * Insight: Does the user complete AI-suggested high-priority tasks faster or more often than low-priority ones? How well does AI priority align with user action?
+   * Query Idea:
+     SELECT 
+    t.priority AS ai_suggested_priority,
+    COUNT(*) AS total_tasks,
+    SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS completed_tasks,
+    (SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END)::float / COUNT(*)::float) AS completion_rate
+FROM tasks t
+WHERE t.user_id = ${userId} 
+  AND t.is_ai_generated = TRUE 
+  AND t.created_at > ${startDate} -- or use due_date range
+GROUP BY t.priority
+ORDER BY t.priority;
+
+   * Dashboard: Bar chart showing completion rate per AI priority level.
+ * HITL Review Statistics:
+   * Insight: What percentage of AI tasks are flagged for review? Of those reviewed, how many are approved, modified, or rejected?
+   * Query Idea:
+     SELECT 
+    t.hitl_status,
+    COUNT(*) AS count_tasks
+FROM tasks t
+WHERE t.user_id = ${userId} 
+  AND t.is_ai_generated = TRUE 
+  AND t.requires_hitl_review = TRUE -- or just all AI tasks and group by hitl_status
+  AND t.created_at > ${startDate}
+GROUP BY t.hitl_status;
+-- Separately: Total AI tasks vs. tasks requiring HITL review
+SELECT 
+    SUM(CASE WHEN requires_hitl_review = TRUE THEN 1 ELSE 0 END) as review_needed_count,
+    COUNT(*) as total_ai_tasks
+FROM tasks
+WHERE user_id = ${userId} AND is_ai_generated = TRUE AND created_at > ${startDate};
+
+   * Dashboard: Pie chart for HITL statuses, and a KPI for % tasks needing review.
+ * Average Time to Task Completion (by Priority or Category):
+   * Insight: How long does it take for tasks of different types/priorities to get done?
+   * Query Idea (requires tasks.completed_at to be populated):
+     SELECT 
+    t.priority,
+    t.category,
+    AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at))) / 3600.0 AS avg_completion_hours -- in hours
+FROM tasks t
+WHERE t.user_id = ${userId} 
+  AND t.status = 'completed' 
+  AND t.completed_at IS NOT NULL
+  AND t.created_at > ${startDate}
+GROUP BY t.priority, t.category
+ORDER BY t.priority, avg_completion_hours DESC;
+
+   * Dashboard: Bar chart or table.
+ * Email Volume by Day of Week / Hour of Day:
+   * Insight: When does the user receive most of their emails? Helps understand peak times.
+   * Query Idea:
+     -- By Day of Week (0=Sunday, 6=Saturday for EXTRACT(DOW ...))
+SELECT 
+    EXTRACT(DOW FROM e.received_at) AS day_of_week,
+    COUNT(*) AS email_count
+FROM emails e
+JOIN connected_accounts ca ON e.connected_account_id = ca.id
+WHERE ca.user_id = ${userId} AND e.received_at > ${startDate}
+GROUP BY 1 ORDER BY 1;
+
+-- By Hour of Day
+SELECT 
+    EXTRACT(HOUR FROM e.received_at) AS hour_of_day,
+    COUNT(*) AS email_count
+FROM emails e
+JOIN connected_accounts ca ON e.connected_account_id = ca.id
+WHERE ca.user_id = ${userId} AND e.received_at > ${startDate}
+GROUP BY 1 ORDER BY 1;
+
+   * Dashboard: Bar charts.
+ * Effectiveness of User Adaptation Profiles (More Advanced):
+   * Insight: How often are learned preferences from user_adaptation_profiles being applied?
+   * Query Idea: This requires your task creation logic to log when an adaptation was applied. If tasks.original_ai_suggestion_json stores the "raw" AI suggestion and then the main task fields store the adapted suggestion, you can compare. Or if your adaptation service logs its actions.
+     -- Assuming a hypothetical 'tasks.adaptations_applied_json' field
+SELECT 
+    jsonb_object_keys(t.adaptations_applied_json) AS adaptation_type,
+    COUNT(*) as application_count
+FROM tasks t
+WHERE t.user_id = ${userId} 
+  AND t.is_ai_generated = TRUE 
+  AND t.adaptations_applied_json IS NOT NULL
+  AND t.created_at > ${startDate}
+GROUP BY 1
+ORDER BY application_count DESC;
+
+   * Dashboard: Bar chart showing types of adaptations applied.
+ * Semantic Search Query Analysis (If you log search queries):
+   * Insight: What are users searching for? Which searches yield no results? (Requires a search_logs table).
+   * Query Idea (assuming search_logs table):
+     SELECT 
+    query_text, 
+    COUNT(*) as search_count,
+    AVG(results_returned) as avg_results
+FROM search_logs
+WHERE user_id = ${userId} AND created_at > ${startDate}
+GROUP BY query_text
+ORDER BY search_count DESC
+LIMIT 20;
+
+   * Dashboard: Top search terms, searches with zero results.
+ * Correlation of Email Sentiment/Category with Task Priority/Completion:
+   * Insight: Do tasks from "negative" sentiment emails get higher priority or take longer to complete? Do "direct_task" category emails get completed faster than "information_update" derived tasks?
+   * Query Idea (Sentiment vs. Task Priority):
+     SELECT 
+    e.ai_sentiment,
+    t.priority,
+    COUNT(t.id) AS task_count
+FROM tasks t
+JOIN emails e ON t.source_email_id = e.id
+JOIN connected_accounts ca ON e.connected_account_id = ca.id
+WHERE ca.user_id = ${userId} 
+  AND t.is_ai_generated = TRUE
+  AND e.received_at > ${startDate}
+GROUP BY e.ai_sentiment, t.priority
+ORDER BY e.ai_sentiment, t.priority;
+
+   * Dashboard: Stacked bar chart or heatmap.
+Implementation Notes for AI Coder:
+ * These queries will need to be integrated into your backend analytics endpoint(s).
+ * Ensure all queried columns are well-indexed, especially user_id, connected_account_id, timestamps, ai_suggested_category, ai_sentiment, tasks.priority, tasks.status.
+ * The frontend will need new components or chart configurations to display these new analytics.
+ * The userId in these queries needs to be replaced with the ID of the authenticated user.
+ * Timestamps (timestamp vs. received_at vs. created_at) need to be consistent with your actual schema. I've used common examples.
+This set of analytics should provide much deeper insights into user behavior, email patterns, and the effectiveness of your AI system!

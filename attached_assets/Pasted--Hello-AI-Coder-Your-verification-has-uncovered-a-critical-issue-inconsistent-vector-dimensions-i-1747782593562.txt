@@ -1,0 +1,58 @@
+"Hello AI Coder,
+
+Your verification has uncovered a critical issue: inconsistent vector dimensions in our database (some 16-dim, some 1536-dim, instead of the required 768-dim for our Ollama nomic-embed-text model). This is causing 'different vector dimensions' errors and breaking RAG/semantic search.
+
+This must be fixed immediately with a focus on standardizing everything to 768 dimensions.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Wednesday, May 21, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Critical Fix:
+
+Create an Alembic migration to nullify all existing incorrect-dimension embeddings in the emails and tasks tables.
+Ensure all new embedding generation code strictly produces and attempts to save only 768-dimensional vectors.
+Verify that the SemanticSearchService and pgvector indexes are configured for and operate on 768-dimensional vectors.
+Detailed Steps:
+
+Confirm Database Column Schema:
+
+Re-verify (e.g., via psql \d emails and \d tasks) that the embedding_vector columns are currently defined as vector(768) in the live database schema. If they are still vector(1536) from a previous state, this must be the very first thing corrected with an ALTER COLUMN ... TYPE vector(768) migration, and HNSW indexes rebuilt for 768 dimensions. (Assume for now the columns are already vector(768) as per your last fix report, but please double check this first and state it).
+Create Alembic Data Migration to Nullify Incorrect Vectors:
+
+Generate a new Alembic migration script (e.g., alembic revision -m "nullify_incorrect_dimension_embeddings").
+In the upgrade() function of this script, add SQL commands to set embedding_vector = NULL (and clear any related embedding metadata like embedding_generated_at or dimension info in a JSONB field) for any rows in emails and tasks where the stored embedding_vector is not NULL AND its dimension is not 768.
+Python
+# Example op.execute() in migration for emails table
+op.execute("""
+    UPDATE emails
+    SET embedding_vector = NULL,
+        embedding_generated_at = NULL -- and any other metadata fields to clear
+    WHERE embedding_vector IS NOT NULL 
+      AND array_length(embedding_vector::real[], 1) != 768;
+""")
+# Similar for tasks table
+The downgrade() function for this data migration can be pass or raise NotImplementedError as reverting this specific data cleanup is complex and likely not desired.
+Strictly Enforce 768-Dimension in Embedding Generation Code (NlpService/AIService):
+
+Review the function responsible for calling Ollama nomic-embed-text to generate embeddings.
+After receiving the embedding from Ollama:
+Add an explicit check: if not isinstance(embedding, list) or len(embedding) != 768:.
+If this check fails, log a critical error with the email/task ID and the problematic embedding (or its type/length).
+Do NOT attempt to save this incorrect embedding. The function should return None or raise a specific exception that the calling RQ task can catch.
+Remove any automatic downsampling/padding logic (like 1536 -> 768 conversion or padding to 768) if the primary embedding source is now meant to be nomic-embed-text (768-dim). The goal is to only accept and store perfect 768-dim vectors from the designated model. If a different model is configured later, that's a separate concern.
+Update RQ Embedding Tasks (generate_embedding_for_email, generate_embedding_for_task_record):
+
+If the NlpService now returns None or raises an exception for a failed/mismatched embedding, these tasks should catch that and store NULL in the embedding_vector column (and log the failure), rather than trying to store an invalid vector or a zero-vector.
+Verify SemanticSearchService and Vector Indexes:
+
+Confirm HNSW indexes on emails.embedding_vector and tasks.embedding_vector are defined for vector(768) using vector_cosine_ops.
+Confirm all vector search queries in SemanticSearchService use the appropriate cosine distance operator (<=>) and expect 768-dimensional query vectors.
+Testing & Verification After Fixes:
+
+Apply the new Alembic data migration.
+Re-trigger the embedding generation pipeline (e.g., using your batch embedding tasks, or by processing a few new emails) for some emails/tasks that previously had incorrect embeddings or no embeddings.
+Verify (with psql):
+All embedding_vector entries in emails and tasks are now either NULL or valid 768-dimensional vectors (check with array_length(embedding_vector::real[], 1)). There should be NO other dimensions present.
+Test Semantic Search API: Confirm it works without "different vector dimensions" errors and returns relevant results.
+This focused effort to enforce 768-dimensional consistency is crucial. Please proceed with these steps, starting with confirming the current column type and then creating the data migration to nullify incorrect vectors.

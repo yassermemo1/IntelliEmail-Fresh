@@ -1,0 +1,70 @@
+Hello AI Coder,
+
+We need to implement or refine our EmailChainService to robustly correlate related emails. This service will be used to provide context for our RAG pipeline and potentially to display related email information to the user in the frontend.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Tuesday, May 20, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Chunk: Implement/Refine app/services/email_chain_service.py (or equivalent) with methods to find emails related by Thread ID, Subject Line Similarity, and Semantic Similarity (using vector embeddings). Also, implement a mechanism for proactively identifying and storing strong semantic relationships.
+
+Prerequisites:
+
+emails table in PostgreSQL with:
+id (PK)
+connected_account_id (FK)
+thread_id (stores provider's conversation/thread ID)
+subject (String)
+embedding_vector (VECTOR(768), with HNSW index for cosine similarity)
+NlpService can provide text cleaning utilities if needed for subjects.
+SemanticSearchService might contain foundational vector search logic that can be leveraged or adapted.
+Detailed Requirements for EmailChainService:
+
+Core Function: async def find_related_emails(db: AsyncSession, current_email: Email, connected_account_id: str, max_results: int = 5) -> List[Email]:
+
+This function will take the current_email object (the one we're finding relations for), its connected_account_id, and the max number of results.
+Methodology (Prioritized):
+a. Thread ID Matching (Highest Priority):
+If current_email.thread_id is not null, retrieve all other emails from the emails table belonging to the same connected_account_id that share the same thread_id. Exclude the current_email itself.
+b. Subject Line Similarity (Secondary, if more results needed or as a separate category of relation):
+Clean the current_email.subject (normalize case, remove "Re:", "Fwd:", leading/trailing whitespace).
+Search for other emails from the same connected_account_id with highly similar cleaned subjects. Consider using a fuzzy matching library (like thefuzz) with a high similarity threshold (e.g., > 0.85 or 0.9).
+c. Semantic Similarity (Tertiary, if more results needed or as a distinct category):
+Use the current_email.embedding_vector to query the emails table (for the same connected_account_id) using pgvector's cosine similarity (1 - (embedding_vector <=> :query_embedding)).
+Retrieve emails with a similarity score above a certain threshold (e.g., > 0.8, this corresponds to a cosine distance < 0.2).
+d. (Optional) Pre-computed Semantic Relationships: If the update_email_relationships mechanism (see point 2) is implemented and stores direct links, query this store first for strong pre-calculated semantic matches.
+Combining & Ranking Results:
+De-duplicate results obtained from the different methods.
+Prioritize results: Thread ID matches are most important. Then, perhaps subject matches, then semantic matches.
+Implement a ranking logic if results from different methods need to be combined to reach max_results. Consider recency as a secondary sorting factor.
+Return a list of unique Email ORM objects, up to max_results.
+Background Task for Proactive Semantic Linking: async def update_email_relationships_for_account(db: AsyncSession, connected_account_id: str, recent_only: bool = True) (Celery/RQ Task in app/tasks/ai_linking_tasks.py - new file)
+
+Purpose: To periodically scan emails and pre-compute strong semantic relationships, storing them for faster retrieval by find_related_emails.
+Database Schema for Stored Relationships (New Table - email_semantic_links):
+email_id_a: UUID (ForeignKey('emails.id'), primary_key=True)
+email_id_b: UUID (ForeignKey('emails.id'), primary_key=True)
+similarity_score: Float (nullable=False)
+link_type: String (default='semantic_ollama_nomic', nullable=False) (to denote how it was derived)
+created_at: DateTime
+(Ensure email_id_a < email_id_b to store pairs uniquely, or handle duplicates)
+Create Alembic migration for this new table and necessary indexes (e.g., on email_id_a, email_id_b, similarity_score).
+Task Logic:
+If recent_only, select emails from the specified connected_account_id that were recently embedded or haven't been scanned for relationships.
+For each selected email, perform a vector similarity search against other emails in the same account (or a relevant subset to manage performance).
+If strong semantic matches (above a high confidence threshold, e.g., similarity > 0.85 or 0.9) are found that are not already in email_semantic_links, store these pairs and their scores in the email_semantic_links table.
+Scheduling: This task could be queued after a batch of new emails are embedded, or run periodically (e.g., nightly) by Celery Beat / RQ Scheduler.
+Utility for Subject Cleaning:
+
+Implement a robust helper function (e.g., in app/core/utils.py or within the service) to clean email subjects (lowercase, remove common prefixes like "re:", "fw:", "fwd:", "aw:", strip whitespace).
+Integration Points:
+
+The extract_features_from_email Celery/RQ task should be updated to call EmailChainService.find_related_emails() to get context for its RAG prompt to the LLM.
+API endpoints that return email details (GET /api/v1/emails/{email_id}) could be enhanced to also return a list of related email IDs/subjects by calling this service, which the frontend can then display.
+Testing Considerations:
+
+Create test data with clear email threads, emails with similar subjects (but different threads), and emails that are semantically related but have different subjects/threads.
+Unit test each correlation method in EmailChainService separately.
+Test the find_related_emails function to ensure correct prioritization and de-duplication.
+Test the update_email_relationships_for_account task to verify it populates the email_semantic_links table.
+Please start by implementing the find_related_emails method with Thread ID and Subject Line Similarity first. Then, integrate the Semantic Similarity (vector search) part. The proactive update_email_relationships_for_account task and its email_semantic_links table can be a subsequent step within this chunk. Ensure all database queries are scoped by connected_account_id for data isolation.

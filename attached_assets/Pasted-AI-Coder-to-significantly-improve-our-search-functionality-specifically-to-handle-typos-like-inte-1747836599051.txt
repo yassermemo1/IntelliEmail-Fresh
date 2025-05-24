@@ -1,0 +1,30 @@
+AI Coder, to significantly improve our search functionality, specifically to handle typos like 'intersting' being understood as 'interesting' and to enhance overall keyword relevance in a 'Google search-like' manner, I want us to integrate PostgreSQL's Full-Text Search (FTS) capabilities with an Ispell dictionary for English.
+
+Then, we will enhance our SemanticSearchService to perform a Hybrid Search, combining the results of FTS with our existing pgvector semantic search.
+
+Please outline the steps and then proceed with implementing:
+
+Backend - Setup PostgreSQL Full-Text Search:
+
+Add a new tsvector column (e.g., content_fts_vector) to both the emails and tasks SQLAlchemy models.
+Create Alembic migrations to add these columns.
+Implement database triggers (in SQL, applied via Alembic migration or a separate setup script) to automatically populate these tsvector columns from the relevant text fields (e.g., subject + body_text for emails; title + description for tasks) using to_tsvector('english', ...) whenever an email/task is created or updated.
+Create GIN indexes on these new tsvector columns.
+Investigate and document how to configure an English Ispell dictionary for our PostgreSQL instance (this might involve installing additional packages on the PostgreSQL server/container and configuring the FTS setup to use this dictionary).
+Backend - Enhance SemanticSearchService for Hybrid Search:
+
+Modify the search methods to accept a user's text query.
+This method should now perform two types of searches:
+Full-Text Search: Construct a tsquery from the user's query (e.g., using plainto_tsquery('english', user_query) or websearch_to_tsquery('english', user_query) which is often good for web-style queries) and search against the content_fts_vector column using the @@ operator. This will handle typos if Ispell is configured.
+Vector Semantic Search: (As currently implemented) Generate an embedding for the user's query and search against the embedding_vector column using pgvector operators.
+Result Fusion: Implement a strategy to combine and re-rank the results from both FTS and vector search. Start with a simple approach:
+Fetch top N results from FTS.
+Fetch top M results from vector search.
+Combine the lists, remove duplicates (based on email/task ID).
+Present a single ranked list (e.g., you could interleave them, or if one result appears in both, boost its score). (Reciprocal Rank Fusion - RRF - is a good algorithm for this if you want to research it, but a simpler heuristic is fine for now).
+The API response should still be a unified list of relevant items.
+Testing:
+
+Specifically test typo tolerance: Search for "intersting projcet deadlnes" and verify if it finds items related to "interesting project deadlines."
+Compare results from hybrid search vs. vector-only vs. FTS-only for a few queries to understand the benefits.
+This will make our search much more robust, user-friendly, and truly 'Google-like' by combining keyword/typo-correction strength with semantic understanding.

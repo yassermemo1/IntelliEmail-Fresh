@@ -1,0 +1,876 @@
+import express, { type Express, Request, Response, NextFunction } from "express";
+import { createServer, type Server } from "http";
+import { storage } from "./storage";
+import { z } from "zod";
+// import { zodToJsonSchema } from "zod-to-json-schema";
+import { insertUserSchema, insertEmailAccountSchema, insertTaskSchema } from "@shared/schema";
+import { emailService, gmailService, realTimeEmailService, aiService, aiModelService, emailChainService } from "./services";
+import { db } from "./db";
+import { sql, desc } from "drizzle-orm";
+
+// Helper function for task extraction explanation
+function generateTaskExtractionExplanation(subject: string, sender: string, classification: string[], isNonActionable: boolean): string {
+  let explanation = '';
+  
+  if (isNonActionable) {
+    explanation = `This email from "${sender}" with subject "${subject}" was classified as non-actionable `;
+    
+    if (sender.includes('newsletter') || sender.includes('no-reply') || sender.includes('noreply')) {
+      explanation += 'because it appears to be from a newsletter or automated system. ';
+    } else if (subject.toLowerCase().includes('newsletter') || subject.toLowerCase().includes('weekly update')) {
+      explanation += 'because the subject suggests it is a newsletter or regular update. ';
+    } else {
+      explanation += 'based on content pattern analysis. ';
+    }
+    
+    explanation += 'No tasks were generated from this email.';
+  } else {
+    explanation = `This email from "${sender}" with subject "${subject}" was classified as actionable `;
+    explanation += `and categorized as: ${classification.join(', ')}. `;
+    
+    if (classification.includes('work')) {
+      explanation += 'Work-related emails typically receive medium to high priority. ';
+    }
+    
+    if (classification.includes('urgent') || subject.toLowerCase().includes('urgent') || subject.toLowerCase().includes('asap')) {
+      explanation += 'The email was marked as urgent based on key terms in the subject or content. ';
+    }
+    
+    if (classification.includes('financial')) {
+      explanation += 'Financial emails are typically given careful attention for task extraction. ';
+    }
+    
+    explanation += 'Tasks were generated based on the content analysis.';
+  }
+  
+  return explanation;
+}
+
+
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Create a single HTTP server for the application
+  const server = createServer(app);
+  
+  // API routes prefix
+  const apiRouter = express.Router();
+  app.use("/api", apiRouter);
+  
+  // Commented out modular routes until fully implemented
+  // Will implement these in the routes below for now
+  /* 
+  import emailAccountRoutes from './routes/emailAccounts';
+  import oauthRoutes from './routes/oauth';
+  
+  // Register route modules
+  apiRouter.use('/email-accounts', emailAccountRoutes);
+  apiRouter.use('/oauth', oauthRoutes);
+  */
+
+  // User routes
+  apiRouter.post("/users", async (req: Request, res: Response) => {
+    try {
+      const userData = insertUserSchema.parse(req.body);
+      const user = await storage.createUser(userData);
+      res.status(201).json(user);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.get("/users/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const user = await storage.getUser(id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json(user);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Email Account routes
+  apiRouter.get("/email-accounts", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const accounts = await storage.getEmailAccounts(userId);
+      res.json(accounts);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.post("/email-accounts", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      
+      const { accountType, emailAddress, password } = req.body;
+      
+      // Validate required fields
+      if (!accountType || !emailAddress || !password) {
+        return res.status(400).json({
+          error: "Missing required fields: accountType, emailAddress, and password are required"
+        });
+      }
+      
+      // Use the email service to save the account with encrypted credentials
+      const account = await emailService.saveEmailAccount(
+        userId, 
+        accountType, 
+        emailAddress, 
+        password
+      );
+      
+      res.status(201).json(account);
+    } catch (error) {
+      console.error('Error creating email account:', error);
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.get("/email-accounts/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const account = await storage.getEmailAccount(id);
+      if (!account) {
+        return res.status(404).json({ message: "Email account not found" });
+      }
+      res.json(account);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.put("/email-accounts/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const accountData = req.body;
+      const updatedAccount = await storage.updateEmailAccount(id, accountData);
+      res.json(updatedAccount);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.delete("/email-accounts/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteEmailAccount(id);
+      res.status(204).end();
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Email routes
+  apiRouter.get("/emails", async (req: Request, res: Response) => {
+    try {
+      const accountId = parseInt(req.query.accountId as string);
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
+      
+      if (isNaN(accountId)) {
+        return res.status(400).json({ message: "Valid accountId is required" });
+      }
+      
+      const emails = await storage.getEmails(accountId, limit, offset);
+      res.json(emails);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // Get single email
+  apiRouter.get("/emails/:id", async (req: Request, res: Response) => {
+    try {
+      const emailId = parseInt(req.params.id);
+      const email = await storage.getEmail(emailId);
+      if (!email) {
+        return res.status(404).json({ message: "Email not found" });
+      }
+      res.json(email);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // Get related emails for a specific email
+  apiRouter.get("/emails/:id/related", async (req: Request, res: Response) => {
+    try {
+      const emailId = parseInt(req.params.id);
+      const relatedEmails = await emailChainService.findRelatedEmails(emailId);
+      res.json(relatedEmails);
+    } catch (error) {
+      console.error("Error getting related emails:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // Email sync endpoint
+  apiRouter.post("/email-accounts/:id/sync", async (req: Request, res: Response) => {
+    try {
+      const accountId = parseInt(req.params.id);
+      const limit = req.body.limit ? parseInt(req.body.limit) : 50;
+      
+      if (isNaN(accountId)) {
+        return res.status(400).json({ message: "Valid account ID is required" });
+      }
+      
+      // Start the email synchronization process
+      const syncedCount = await emailService.syncEmails(accountId, limit);
+      
+      res.json({ 
+        success: true, 
+        message: `Successfully synchronized ${syncedCount} emails`, 
+        emailsProcessed: syncedCount 
+      });
+    } catch (error) {
+      console.error('Error syncing emails:', error);
+      res.status(500).json({ 
+        error: "Failed to sync emails", 
+        details: (error as Error).message 
+      });
+    }
+  });
+  
+  // Gmail specific sync endpoint for the test account
+  apiRouter.post("/gmail/sync", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const limit = req.body.limit ? parseInt(req.body.limit) : 500; // Increased default limit to handle more emails
+      
+      // Use the test Gmail account
+      const email = "yassermemo@gmail.com";
+      
+      // Fetch and store emails from Gmail 
+      const result = await gmailService.fetchAndStoreEmails(email, userId, limit);
+      
+      res.json({
+        success: true,
+        message: `Successfully synchronized ${result.count} emails from Gmail (last 90 days)`,
+        emailsProcessed: result.count,
+        accountId: result.accountId
+      });
+    } catch (error) {
+      console.error('Error syncing Gmail emails:', error);
+      res.status(500).json({
+        error: "Failed to sync Gmail emails",
+        details: (error as Error).message
+      });
+    }
+  });
+
+  // Task routes
+  apiRouter.get("/tasks", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
+      
+      const tasks = await storage.getTasks(userId, limit, offset);
+      res.json(tasks);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.get("/tasks/review", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const tasks = await storage.getTasksRequiringReview(userId);
+      res.json(tasks);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.post("/tasks", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const taskData = insertTaskSchema.parse({
+        ...req.body,
+        userId,
+      });
+      const task = await storage.createTask(taskData);
+      res.status(201).json(task);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.get("/tasks/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const task = await storage.getTask(id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.put("/tasks/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const taskData = req.body;
+      const updatedTask = await storage.updateTask(id, taskData);
+      res.json(updatedTask);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.delete("/tasks/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteTask(id);
+      res.status(204).end();
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // AI Settings routes
+  apiRouter.get("/ai-settings", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const settings = await storage.getAiSettings(userId);
+      res.json(settings || { userId });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  apiRouter.put("/ai-settings", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const settingsData = req.body;
+      const updatedSettings = await storage.updateAiSettings(userId, settingsData);
+      res.json(updatedSettings);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Feedback routes
+  apiRouter.post("/feedback", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const feedbackData = {
+        ...req.body,
+        userId,
+      };
+      const feedback = await storage.createFeedback(feedbackData);
+      res.status(201).json(feedback);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Search routes
+  apiRouter.get("/search", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const query = req.query.q as string;
+      const type = req.query.type as string;
+      
+      if (!query) {
+        return res.status(400).json({ message: "Search query is required" });
+      }
+      
+      if (type === 'tasks') {
+        const results = await storage.searchTasks(userId, query);
+        return res.json(results);
+      } else if (type === 'emails') {
+        const results = await storage.searchEmails(userId, query);
+        return res.json(results);
+      } else {
+        // Search both
+        const [tasks, emails] = await Promise.all([
+          storage.searchTasks(userId, query),
+          storage.searchEmails(userId, query)
+        ]);
+        return res.json({ tasks, emails });
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // AI Query endpoint - Ask about emails
+  apiRouter.post("/ai/ask", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const { question } = req.body;
+      
+      if (!question) {
+        return res.status(400).json({ message: "Question is required" });
+      }
+      
+      // Get answer from AI
+      const result = await aiService.askAboutEmails(userId, question);
+      res.json(result);
+    } catch (error) {
+      console.error("Error in AI ask endpoint:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // Process email embeddings in batch
+  apiRouter.post("/ai/process-embeddings", async (req: Request, res: Response) => {
+    try {
+      const { batchSize = 100 } = req.body;
+      
+      // Start the embedding process
+      const processedCount = await aiService.updateEmailEmbeddings(batchSize);
+      
+      res.json({
+        success: true,
+        processedCount,
+        message: `Successfully processed ${processedCount} emails`
+      });
+    } catch (error) {
+      console.error('Error processing embeddings:', error);
+      res.status(500).json({
+        success: false,
+        error: (error as Error).message
+      });
+    }
+  });
+  
+  // Get embedding processing status
+  apiRouter.get("/ai/embedding-status", async (req: Request, res: Response) => {
+    try {
+      const status = await aiService.getEmbeddingStatus();
+      
+      res.json({
+        success: true,
+        ...status
+      });
+    } catch (error) {
+      console.error('Error getting embedding status:', error);
+      res.status(500).json({
+        success: false,
+        error: (error as Error).message
+      });
+    }
+  });
+  
+  // AI Models endpoints
+  apiRouter.get("/ai/models", async (req: Request, res: Response) => {
+    try {
+      const models = await aiModelService.getAllModels();
+      res.json(models);
+    } catch (error) {
+      console.error("Error getting AI models:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  apiRouter.get("/ai/models/:id", async (req: Request, res: Response) => {
+    try {
+      const modelId = parseInt(req.params.id);
+      const model = await aiModelService.getModelById(modelId);
+      
+      if (!model) {
+        return res.status(404).json({ message: "Model not found" });
+      }
+      
+      res.json(model);
+    } catch (error) {
+      console.error("Error getting AI model:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // AI Settings endpoints
+  apiRouter.get("/ai/settings", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const settings = await aiModelService.getAiSettings(userId);
+      res.json(settings);
+    } catch (error) {
+      console.error("Error getting AI settings:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  apiRouter.put("/ai/settings", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      const settings = await aiModelService.updateAiSettings(userId, req.body);
+      res.json(settings);
+    } catch (error) {
+      console.error("Error updating AI settings:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // Test Ollama connection
+  apiRouter.post("/ai/test-ollama", async (req: Request, res: Response) => {
+    try {
+      const { endpoint } = req.body;
+      
+      if (!endpoint) {
+        return res.status(400).json({ message: "Endpoint is required" });
+      }
+      
+      const result = await aiModelService.testOllamaConnection(endpoint);
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing Ollama connection:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // Test email classification and task generation
+  apiRouter.post("/ai/test-task-extraction", async (req: Request, res: Response) => {
+    try {
+      const { count = 10 } = req.body;
+      
+      // Get recent emails to process - fixed to use SQL query to handle schema properly
+      const recentEmailsQuery = sql`
+        SELECT * FROM emails
+        ORDER BY timestamp DESC
+        LIMIT ${count}
+      `;
+      
+      const recentEmails = await db.execute(recentEmailsQuery);
+      
+      if (!recentEmails.rows || recentEmails.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No emails found to process'
+        });
+      }
+      
+      // Process each email and collect results
+      const results = [];
+      
+      for (const email of recentEmails.rows) {
+        try {
+          // Extract tasks from the email
+          const extractedTasks = await aiService.extractTasksFromEmail(email.id);
+          
+          // Get classification details to explain the decision
+          const subject = email.subject || '';
+          const body = email.body ? (email.body.length > 200 ? email.body.substring(0, 200) + '...' : email.body) : '';
+          const classification = aiService.classifyEmailContent(subject, body);
+          const isNonActionable = aiService.isLikelyNonActionable(subject, email.sender || '');
+          
+          // Add result with explanation
+          results.push({
+            emailId: email.id,
+            subject: email.subject,
+            sender: email.sender,
+            classification,
+            isLikelyNonActionable: isNonActionable,
+            extractedTasks,
+            analysis: {
+              extractedTaskCount: extractedTasks.length,
+              categories: classification,
+              explanation: generateTaskExtractionExplanation(subject, email.sender || '', classification, isNonActionable)
+            }
+          });
+        } catch (error) {
+          console.error(`Error processing email ${email.id}:`, error);
+          results.push({
+            emailId: email.id,
+            subject: email.subject,
+            error: (error as Error).message
+          });
+        }
+      }
+      
+      res.json({
+        success: true,
+        totalProcessed: results.length,
+        results
+      });
+    } catch (error) {
+      console.error('Error in test task extraction:', error);
+      res.status(500).json({
+        success: false,
+        error: (error as Error).message
+      });
+    }
+  });
+  
+  // Test API key
+  apiRouter.post("/ai/test-api-key", async (req: Request, res: Response) => {
+    try {
+      const { provider, apiKey } = req.body;
+      
+      if (!provider || !apiKey) {
+        return res.status(400).json({ message: "Provider and API key are required" });
+      }
+      
+      const result = await aiModelService.testApiKey(provider, apiKey);
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing API key:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+  
+  // Extract tasks from an email
+  apiRouter.post("/emails/:id/extract-tasks", async (req: Request, res: Response) => {
+    try {
+      const emailId = parseInt(req.params.id, 10);
+      
+      if (isNaN(emailId)) {
+        return res.status(400).json({ error: "Invalid email ID" });
+      }
+      
+      // Get the email from the database to confirm it exists
+      const email = await storage.getEmail(emailId);
+      
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      
+      // Extract tasks using AI
+      const extractedTasks = await aiService.extractTasksFromEmail(emailId);
+      
+      // For each extracted task, create a task in the database
+      const createdTasks = [];
+      
+      for (const taskData of extractedTasks) {
+        // Only create tasks with confidence above 0.7
+        if (taskData.confidence >= 0.7) {
+          const taskToCreate = {
+            userId: 1, // For simplicity, we're using a fixed userId
+            title: taskData.title,
+            description: taskData.description,
+            priority: taskData.priority,
+            dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+            isCompleted: false,
+            emailId: emailId,
+            needsReview: taskData.confidence < 0.9, // If confidence is lower, mark for review
+          };
+          
+          const createdTask = await storage.createTask(taskToCreate);
+          createdTasks.push(createdTask);
+        }
+      }
+      
+      res.json({
+        totalExtracted: extractedTasks.length,
+        tasksCreated: createdTasks.length,
+        tasks: createdTasks
+      });
+    } catch (error) {
+      console.error("Error extracting tasks from email:", error);
+      res.status(500).json({ error: "Failed to extract tasks from email" });
+    }
+  });
+  
+  // Clean content for all existing emails (remove images, logos, links)
+  apiRouter.post("/emails/clean-content", async (req: Request, res: Response) => {
+    try {
+      const { cleanAllEmailContent } = require('./utils/cleanupEmails');
+      console.log("Starting email content cleanup process for all emails");
+      
+      // Start the cleanup process
+      cleanAllEmailContent()
+        .then(result => {
+          console.log(`Email cleanup completed: ${result.processedCount} emails processed, ${result.errorCount} errors`);
+        })
+        .catch(err => {
+          console.error("Error during email cleanup:", err);
+        });
+      
+      // Return immediately to avoid timeout
+      res.json({ 
+        success: true, 
+        message: "Email content cleanup process started in the background" 
+      });
+    } catch (error) {
+      console.error("Error starting email content cleanup:", error);
+      res.status(500).json({ error: "Failed to start email cleanup process" });
+    }
+  });
+  
+  // Process batch of emails to extract tasks
+  apiRouter.post("/emails/batch-process", async (req: Request, res: Response) => {
+    try {
+      const { limit = 20 } = req.body;
+      const userId = 1; // For simplicity, we're using a fixed userId
+      
+      // Find emails without tasks that haven't been processed yet
+      const emailsResult = await db.execute(sql`
+        SELECT e.id 
+        FROM emails e
+        LEFT JOIN tasks t ON e.id = t.email_id
+        WHERE t.id IS NULL
+        LIMIT ${limit.toString()}
+      `);
+      
+      const emailsToProcess = Array.isArray(emailsResult) 
+        ? emailsResult 
+        : (emailsResult as any)?.rows || [];
+      
+      if (emailsToProcess.length === 0) {
+        return res.json({
+          message: "No unprocessed emails found",
+          processed: 0,
+          tasksCreated: 0
+        });
+      }
+      
+      let totalTasksCreated = 0;
+      
+      // Process each email
+      for (const emailData of emailsToProcess) {
+        try {
+          const emailId = emailData.id;
+          
+          // Extract tasks using AI
+          const extractedTasks = await aiService.extractTasksFromEmail(emailId);
+          
+          // Create tasks in the database
+          for (const taskData of extractedTasks) {
+            // Only create tasks with confidence above 0.7
+            if (taskData.confidence >= 0.7) {
+              const taskToCreate = {
+                userId,
+                title: taskData.title,
+                description: taskData.description,
+                priority: taskData.priority,
+                dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+                isCompleted: false,
+                emailId: emailId,
+                needsReview: taskData.confidence < 0.9, // If confidence is lower, mark for review
+              };
+              
+              await storage.createTask(taskToCreate);
+              totalTasksCreated++;
+            }
+          }
+        } catch (error) {
+          console.error(`Error processing email ${emailData.id}:`, error);
+          // Continue with the next email even if this one fails
+        }
+      }
+      
+      res.json({
+        message: "Batch processing completed",
+        processed: emailsToProcess.length,
+        tasksCreated: totalTasksCreated
+      });
+    } catch (error) {
+      console.error("Error in batch processing emails:", error);
+      res.status(500).json({ error: "Failed to process emails batch" });
+    }
+  });
+
+  // Stats endpoints
+  apiRouter.get("/stats", async (req: Request, res: Response) => {
+    try {
+      // For simplicity, we're using a fixed userId - normally this would come from auth
+      const userId = 1;
+      
+      // Get real stats from database
+      try {
+        // Get count of processed emails
+        const emailsResult = await db.execute(sql`SELECT COUNT(*) FROM emails`);
+        const processedEmails = parseInt(emailsResult.rows[0].count || "0");
+        
+        // Get count of emails with embeddings (RAG)
+        const ragResult = await db.execute(sql`
+          SELECT COUNT(*) FROM emails
+          WHERE embedding_vector IS NOT NULL
+        `);
+        const ragEmails = parseInt(ragResult.rows[0].count || "0");
+        
+        // Get count of cleaned emails (bodyHtml is null)
+        const cleanedResult = await db.execute(sql`
+          SELECT COUNT(*) FROM emails
+          WHERE body_html IS NULL
+        `);
+        const cleanedEmails = parseInt(cleanedResult.rows[0].count || "0");
+        
+        // Count of tasks
+        const tasksResult = await db.execute(sql`
+          SELECT 
+            COUNT(*) FILTER (WHERE is_completed = false) as active_tasks,
+            COUNT(*) FILTER (WHERE is_completed = true) as completed_tasks,
+            COUNT(*) FILTER (WHERE needs_review = true) as pending_reviews
+          FROM tasks
+          WHERE user_id = ${userId.toString()}
+        `);
+        
+        const activeTasks = parseInt(tasksResult.rows[0].active_tasks || "0");
+        const completedTasks = parseInt(tasksResult.rows[0].completed_tasks || "0");
+        const pendingReviews = parseInt(tasksResult.rows[0].pending_reviews || "0");
+        
+        res.json({
+          activeTasks,
+          completedTasks,
+          processedEmails,
+          pendingReviews,
+          ragEmails,
+          cleanedEmails
+        });
+      } catch (error) {
+        console.error("Error getting stats:", error);
+        // Fallback if database query fails
+        res.json({
+          activeTasks: 0,
+          completedTasks: 0,
+          processedEmails: 0,
+          pendingReviews: 0,
+          ragEmails: 0
+        });
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Endpoint to start the email content cleanup process
+  apiRouter.post("/emails/clean-content", async (req: Request, res: Response) => {
+    try {
+      // Import the cleanup utility
+      const { cleanAllEmailContent } = await import('./utils/cleanupEmails');
+      
+      // Start the cleanup process in the background
+      cleanAllEmailContent()
+        .then(result => {
+          console.log(`Email cleanup completed: ${result.processedCount} processed, ${result.errorCount} errors`);
+        })
+        .catch(err => {
+          console.error("Error during email cleanup:", err);
+        });
+      
+      // Return success immediately, the process will continue in the background
+      res.json({
+        success: true,
+        message: "Email content cleanup started. This may take several minutes to complete."
+      });
+    } catch (error) {
+      console.error("Error starting email cleanup:", error);
+      res.status(500).json({ error: "Failed to start email cleanup process" });
+    }
+  });
+  
+  // Return the HTTP server instance
+  return server;
+}

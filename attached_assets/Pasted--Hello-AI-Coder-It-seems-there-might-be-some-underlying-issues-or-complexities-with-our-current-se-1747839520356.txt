@@ -1,0 +1,73 @@
+"Hello AI Coder,
+
+It seems there might be some underlying issues or complexities with our current semantic search implementation, or perhaps in how results are being communicated, leading to responses that feel 'large and malformed' or are not as expected.
+
+Let's take a step back and perform a very targeted debugging and verification of the existing vector-based semantic search functionality for emails. We will focus on one simple search query and trace its path.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Wednesday, May 21, 2025, 5:57 PM (Riyadh Time, +03)
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Chunk:
+
+Verify that a simple text query correctly generates a 768-dimensional embedding using Ollama (nomic-embed-text).
+Verify that the backend SemanticSearchService uses this query embedding to perform a pgvector similarity search against the emails.embedding_vector column.
+Verify the structure and content of the raw results returned by the database query.
+Verify how these raw results are processed and returned by the FastAPI search API endpoint.
+Prerequisites:
+
+Your local host environment is fully set up and all services (FastAPI, PostgreSQL/pgvector 768-dim, Redis, RQ workers, Ollama with nomic-embed-text) are running.
+You have at least a few emails synced from a test Gmail account (IMAP/App Password) that have their embedding_vector (768-dim) correctly populated in the emails table.
+You have identified one specific synced email (let's call its ID KNOWN_EMAIL_ID and its subject KNOWN_EMAIL_SUBJECT) that you will try to find.
+Step-by-Step Verification Plan (AI Coder to guide and perform, reporting at each step):
+
+Step 1: Query Embedding Generation
+* Action: Take a simple search query string that should strongly match the KNOWN_EMAIL_SUBJECT (e.g., use a key phrase from that subject).
+* Verification within NlpService (or AIService):
+* Show the code snippet where this query string is passed to your generateEmbedding function for nomic-embed-text via Ollama.
+* Log and report the exact 768-dimensional query vector generated for this specific query string.
+* Confirm no errors occur during this embedding generation.
+
+Step 2: SemanticSearchService Database Query Construction & Execution
+* Action: Trace how the query vector from Step 1 is used by SemanticSearchService (e.g., in a function like find_relevant_emails_for_query).
+* Verification:
+* Show the exact SQL query (or SQLAlchemy equivalent) that is constructed for pgvector. It should include the WHERE clause for connected_account_id (or user_id), filter for embedding_vector IS NOT NULL, use the cosine distance operator (<=>), and ORDER BY distance ASC LIMIT N.
+* Manually execute this exact SQL query directly in psql against your database, using the query vector generated in Step 1.
+* Report:
+* The constructed SQL query.
+* The full, raw output from psql for this query. This will show us exactly what the database returns (IDs, subjects, distances).
+
+Step 3: Processing of Raw DB Results in SemanticSearchService
+* Action: Review the Python code in SemanticSearchService that takes the raw database rows (from Step 2) and processes them.
+* Verification:
+* How are these rows converted into a list of Email Pydantic schemas or dictionaries?
+* Is any re-ranking, filtering, or additional data fetching happening here?
+* Report: Explain the processing and show the structure of the data before it's returned by the service function.
+
+Step 4: FastAPI API Endpoint for Search
+* Action: Review the FastAPI endpoint (e.g., POST /api/v1/assistant/query-emails or a dedicated POST /api/v1/emails/semantic-search) that calls the SemanticSearchService.
+* Verification:
+* How does it take the user's query?
+* How does it pass it to the SemanticSearchService?
+* What Pydantic response model is it using to structure the final JSON response to the client?
+* Test with curl:
+* Provide the curl command to call this search API endpoint with your simple test query from Step 1.
+* Report:
+* The curl command.
+* The full JSON response received from the API endpoint.
+* The FastAPI logs for this specific API call.
+
+Addressing "Large and Malformed" Response:
+
+By examining the output at each stage (Ollama embedding, raw psql result, processed service result, final API JSON response), we should be able to identify where the data becomes "large" or "malformed."
+Is too much data being fetched from the DB unnecessarily?
+Is the SemanticSearchService adding too much extra information or nesting it incorrectly?
+Is the Pydantic response model for the API endpoint too broad or not matching what the frontend expects?
+This targeted, step-by-step approach for a single search query will help us isolate exactly where the current semantic search functionality might be going wrong or producing unexpected results. Please start with Step 1 and report your findings for each step sequentially."
+This prompt asks the AI Coder to go very granularly through a single semantic search operation. It focuses on:
+
+Verifying the query embedding.
+Seeing the exact SQL and raw DB results for the vector search.
+Understanding how those raw results are processed by the service.
+Seeing the final API output.
+This should help you (and the AI Coder) understand if the issue is in the embedding, the search query, the data processing, or the final API serialization, and why the responses might feel "large and malformed.

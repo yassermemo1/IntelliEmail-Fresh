@@ -1,0 +1,51 @@
+Hello AI Coder,
+
+Thank you for pinpointing the two critical issues currently preventing the application from functioning correctly:
+
+Service import/export problems (preventing the application from starting).
+Missing embedding vector generation for tasks.
+These are our top priorities. Please address them in the order listed.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Wednesday, May 21, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Task 1: Fix Service Import/Export Issues (Highest Priority)
+
+Objective: Ensure the backend application (Node.js/TypeScript with Express.js or similar, as per recent file extensions) starts reliably without any module system errors related to service imports or exports.
+Actions:
+Systematically review all service files in server/services/ (e.g., emailService.ts, gmailService.ts, exchangeService.ts, aiService.ts, taskService.ts, etc.) and the central service export file (server/services/index.ts, if used).
+Correct all export statements in individual service files (e.g., export class MyService... or export default MyService...).
+Correct all re-export statements in server/services/index.ts to match the export types from individual files.
+Correct all import statements in files that consume these services (e.g., API route handlers in server/routes/, other services, or RQ job files if that's how your Node.js task queue is structured) to correctly import what's being exported.
+Pay close attention to default vs. named exports/imports.
+Review tsconfig.json to ensure module and moduleResolution are set appropriately for your project's module system (likely ESModules with Node.js/TypeScript).
+Verification: The backend application must start cleanly without any errors like "emailService is not a constructor," "module not found," or "is not exported."
+Task 2: Implement Automated Task Embedding Generation (After Task 1 is complete and verified)
+
+Objective: Ensure that every new task (whether AI-generated from an email or manually created) automatically has its 768-dimensional embedding vector generated (using Ollama nomic-embed-text via your aiService.ts) and stored in the tasks.embedding_vector column in PostgreSQL.
+Prerequisites:
+Task 1 (Service Import/Export fixes) is complete, and the application starts.
+The tasks table in PostgreSQL has an embedding_vector VECTOR(768) column with an HNSW index.
+Your aiService.ts has a working function generateEmbedding(text: string): Promise<number[]> that calls Ollama and returns a 768-dim vector (with all the robust error handling and dimension standardization you implemented previously).
+Actions:
+Identify Task Creation Points:
+The asynchronous job that creates tasks from AI-extracted email features (e.g., a function called by your setInterval RAG processor or an RQ-like job handler).
+The backend API endpoint for manual task creation (e.g., POST /api/v1/tasks).
+Integrate Embedding Generation:
+In both task creation points listed above, after a new Task record is successfully saved to the PostgreSQL database:
+Construct the text input for embedding (e.g., from task.title + " " + task.description).
+Call aiService.generateEmbedding(textToEmbed).
+Take the returned 768-dimensional vector.
+Format it correctly for pgvector storage (e.g., '[val1,val2,...]'::vector(768)).
+Update the just-created Task record in PostgreSQL, setting its embedding_vector field.
+Ensure this update is committed.
+This process should ideally be asynchronous itself if task creation is part of a long chain (e.g., enqueue a new specific RQ-like job generate_task_embedding_job(taskId)), but for now, ensure the logic is called.
+Error Handling: If embedding generation for a task fails, log the error but do not let it prevent the task itself from being created (the embedding_vector can remain NULL, and a retry mechanism or batch job can fill it later).
+Verification:
+Process a new email that results in AI-generated tasks.
+Manually create a task via API (if you have a test script or Postman for this).
+For these newly created tasks, query the tasks table in PostgreSQL and confirm their embedding_vector column is populated with a 768-dimensional vector.
+Please prioritize Task 1 (Service Import/Export Fixes) immediately, as this is preventing the application from running. Once that is resolved and the application starts cleanly, proceed to Task 2 (Automated Task Embedding Generation).
+
+Report back after each task is completed and verified.

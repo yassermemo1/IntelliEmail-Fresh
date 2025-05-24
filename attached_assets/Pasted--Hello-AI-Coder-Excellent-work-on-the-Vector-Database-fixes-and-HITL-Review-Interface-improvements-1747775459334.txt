@@ -1,0 +1,54 @@
+"Hello AI Coder,
+
+Excellent work on the Vector Database fixes and HITL Review Interface improvements! This is a very strong foundation.
+
+You're right, the next major focus is the Adaptive Learning System. As you outlined, the first step is ensuring our feedback logging system is robustly capturing all necessary data.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Wednesday, May 21, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Chunk: Verify and enhance the backend logging mechanisms to ensure all relevant user interactions and HITL review decisions are comprehensively and accurately captured in the feedback_logs and user_task_interactions tables. This data is the primary input for our Adaptive Learning Engine.
+
+Prerequisites:
+
+feedback_logs and user_task_interactions tables exist in PostgreSQL with their defined schemas (including fields for user_id, source_type/interaction_type, source_item_id/task_id, ai_original_output_json, user_correction_json/new_value_json, previous_value_json, timestamps, etc.).
+The React frontend HITL Review Interface is functional for approving, rejecting, and modifying tasks.
+The React frontend Task Management UI (TaskFormModal, TasksPage) allows users to edit tasks (priority, due date, category, title, description) and change status (e.g., complete, delete).
+Detailed Requirements & Verification Steps:
+
+Logging HITL Review Actions (Backend API - hitl_endpoints.py and/or TaskService):
+
+Action: When a reviewer takes an action (Approve, Reject, Modify & Approve) via the HITL API endpoints:
+If Approved (as is): Ensure a feedback_logs entry is created with source_type='hitl_task_approved', source_item_id=task.id, ai_original_output_json (from task.original_ai_suggestion_json), and user_correction_json being identical or indicating no change.
+If Rejected: Ensure a feedback_logs entry is created with source_type='hitl_task_rejected', source_item_id=task.id, ai_original_output_json.
+If Modified & Approved:
+Ensure task.original_ai_suggestion_json accurately reflects the AI's state before the reviewer's edits.
+Ensure a feedback_logs entry is created with source_type='hitl_task_modified', source_item_id=task.id, ai_original_output_json, and user_correction_json capturing the reviewer's final version of the task details (title, description, priority, category, due_date).
+Verification: Perform each HITL action from the UI and then query the feedback_logs table to verify the correct entries are created with all relevant fields populated.
+Logging Direct Task Modifications (user_task_interactions - Backend API tasks_endpoints.py and/or TaskService):
+
+Action: When a user directly edits an AI-generated task using the standard task editing UI (TaskFormModal.tsx via PUT /api/v1/tasks/{task_id}):
+Before saving the changes, fetch the task's current state.
+After saving, log an entry to user_task_interactions.
+interaction_type should reflect the field(s) changed (e.g., 'task_priority_changed', 'task_due_date_changed', 'task_title_edited', 'task_category_changed'). If multiple fields change in one update, you might log one generic 'task_edited' entry with detailed previous_value_json and new_value_json, or separate entries per changed field.
+previous_value_json should store the relevant field(s) state before the user's edit.
+new_value_json should store the state after the user's edit.
+Ensure task_was_ai_generated and context like source_email_id_at_interaction are logged.
+Verification: Edit various fields of an AI-generated task from the UI and query user_task_interactions to verify detailed and accurate logging.
+Logging Task Lifecycle Events (user_task_interactions):
+
+Action: When a user marks an AI-generated task as 'completed' or 'deletes' an AI-generated task:
+Log an entry to user_task_interactions with interaction_type='task_completed' or interaction_type='task_deleted'.
+Verification: Perform these actions from the UI and check the logs.
+Data Integrity and Consistency:
+
+Ensure all foreign keys (user_id, task_id, related_email_id) in feedback_logs and user_task_interactions are correctly populated.
+Ensure timestamps are accurate.
+Ensure JSONB fields (ai_original_output_json, user_correction_json, previous_value_json, new_value_json) store the data in a consistent and parseable structure.
+Testing Guidance:
+
+For each scenario above, please describe the specific user action in the React UI that should trigger the logging.
+Then, provide the psql query I can use to verify that the correct log entry (with all expected fields populated) was created in either feedback_logs or user_task_interactions.
+Show example JSON structures for ai_original_output_json, user_correction_json, previous_value_json, and new_value_json as they would be stored.
+This comprehensive logging of user feedback and interactions is the absolute foundation for the Adaptive Learning Engine. Once this is robustly in place and verified, we can move on to implementing the Celery/RQ tasks in learning_tasks.py that will process this data.

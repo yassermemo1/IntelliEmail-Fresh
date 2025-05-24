@@ -1,0 +1,56 @@
+"Hello AI Coder,
+
+You've identified a "vector must have at least 1 dimension" error occurring in our RAG processing, likely when the SemanticSearchService attempts a vector similarity search. This indicates an issue with either the query vector being empty/NULL or with how empty/NULL stored vectors are handled in the search.
+
+Your plan to "fix this issue in the database query itself" is a good approach.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Wednesday, May 21, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Fix:
+Modify the vector similarity search queries within app/services/semantic_search_service.py (or equivalent RAG context retrieval logic) to be resilient against empty or NULL query vectors and to correctly handle (or filter out) records with empty/NULL stored embeddings.
+
+Detailed Requirements & Verification:
+
+Guard Against Empty/NULL Query Vector:
+
+Action: Before executing a pgvector similarity search (e.g., using <=> operator):
+If the embedding generated for the input query text (or current email content) results in None or an empty list [] (perhaps from NlpService.generate_embedding if the input text was empty or the embedding model failed for some reason), the SemanticSearchService should not attempt the vector search.
+Instead, it should gracefully handle this by returning an empty list of results or logging a warning and skipping the semantic similarity part of context retrieval.
+Code Location: Likely in SemanticSearchService.find_relevant_emails_for_query() or similar methods.
+Ensure Stored Vectors are Valid in Search Queries:
+
+Action: In your SQL queries for similarity search, ensure you explicitly filter for non-NULL and potentially non-empty (if pgvector treats [] differently from NULL in searches) embedding_vector columns.
+Example SQL WHERE clause addition:
+SQL
+-- ... existing WHERE clauses like user_id/connected_account_id filter ...
+AND emails.embedding_vector IS NOT NULL 
+-- AND array_length(emails.embedding_vector::real[], 1) > 0 -- If pgvector allows storing empty vectors '[]' that need to be excluded
+(Note: pgvector usually expects a vector to have the defined dimension if not NULL. The main issue is likely the query vector or a NULL stored vector).
+Review Embedding Generation Fallbacks:
+
+Action: Re-check your NlpService.generate_embedding() and NlpService.generate_task_embedding() functions. Your AI Coder previously mentioned:
+"Fallback for testing without OpenAI: logger.warning("OpenAI client not available, returning dummy embedding") return [0.0] * settings.EMBEDDING_DIMENSIONS"
+"Empty embedding response from OpenAI: logger.warning("Empty embedding response from OpenAI") return [0.0] * settings.EMBEDDING_DIMENSIONS"
+"Error generating embedding: logger.error(...) return [0.0] * settings.EMBEDDING_DIMENSIONS"
+Confirm: Is returning a zero vector (e.g., [0.0] * 768) the intended fallback when embedding generation fails or input is empty? A zero vector does have dimensions and can be searched against (though it might yield meaningless similarity results or even errors in some distance calculations if not handled carefully by pgvector or if all vectors become zero vectors).
+Alternative Fallback: If embedding fails, it might be better for the NlpService to return None, and then the calling task (generate_embedding_for_email) would store NULL in the embedding_vector column. The search service then explicitly filters out NULL vectors (as per point 2 above). This clearly distinguishes between a "zero meaning" vector and a "failed embedding" vector.
+Testing the Fix:
+
+Scenario 1 (Empty Query Input):
+Attempt a semantic search (via API or test function) with an empty query string or a query that you know will result in a failed/empty embedding from NlpService.
+Expected: The system should not crash. It should return an empty result set or a user-friendly message, and logs should indicate an empty query vector was handled.
+Scenario 2 (DB contains NULL/empty embeddings):
+Manually set embedding_vector = NULL for a few test emails in the database.
+Perform a semantic search that would normally include these emails.
+Expected: The search should still complete without the "vector must have at least 1 dimension" error, by correctly filtering out or handling records with NULL embeddings.
+Scenario 3 (Successful search):
+Perform a semantic search where both query vector and DB vectors are valid 768-dim.
+Expected: Search completes successfully.
+Report Back:
+
+Explain the exact changes made to the SemanticSearchService query logic and/or NlpService embedding generation fallback.
+Confirm the results of testing the scenarios above.
+Provide relevant log snippets if errors were handled or fallbacks were triggered.
+Resolving this will make our RAG processing and semantic search much more resilient. Thank you!

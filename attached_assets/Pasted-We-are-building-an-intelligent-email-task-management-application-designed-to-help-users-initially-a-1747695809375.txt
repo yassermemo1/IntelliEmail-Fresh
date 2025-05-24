@@ -1,0 +1,44 @@
+We are building an intelligent email task management application designed to help users (initially a single developer/tester, eventually more) automatically extract actionable tasks, insights, and relevant information from their emails. The system aims to reduce manual email processing, improve productivity, and provide context-aware assistance by connecting to users' existing email accounts.
+
+2. Key User-Facing Features (Conceptual):
+
+Multi-Account Email Integration: Users can connect multiple email accounts (currently focusing on Gmail via IMAP/App Password for testing, and on-premises Microsoft Exchange via EWS with traditional credentials).
+AI-Driven Task Extraction: The system reads synced emails, and an AI (currently a locally hosted Ollama with models like Llama3 for analysis and Nomic for embeddings) analyzes the content to:
+Identify and suggest actionable tasks.
+Extract potential deadlines, priorities, and relevant categories.
+Identify key entities (people, organizations, projects).
+Generate concise summaries.
+Task Management Interface: A UI (target is React) where users can view, manage, edit, and complete these AI-generated tasks, as well as create tasks manually.
+Semantic Search: Users can search across their synced emails and tasks using natural language queries, with results ranked by semantic relevance.
+Contextual Awareness (RAG): The AI uses historical email and task data (retrieved via vector similarity search) to provide more relevant and personalized analysis when processing new emails.
+User Customization:
+Users can configure their preferred LLM provider and models (e.g., switch between Ollama, OpenAI public API, Azure OpenAI).
+Users can define rules to automate email processing and task categorization/prioritization.
+Adaptive Learning: The system is designed to learn from user interactions and feedback (e.g., how they edit tasks, re-categorize emails, HITL review decisions) to personalize AI behavior over time.
+2-Way Email Sync Actions: Users can perform some actions from the app (e.g., mark as read, archive) that reflect back on their email server.
+Human-in-the-Loop (HITL) Review: A workflow and UI for human reviewers to validate or correct AI-generated tasks that fall below a certain confidence threshold.
+3. High-Level Architecture:
+
+Frontend (Target): React SPA (Single Page Application) with TypeScript and Tailwind CSS. (Note: Some UI prototyping/testing may have used Flask temporarily).
+Backend API: FastAPI (Python) providing RESTful endpoints for all application logic.
+Asynchronous Task Processing: RQ (Redis Queue) with Python workers to handle long-running tasks like email synchronization, AI processing (embedding generation, LLM calls), and task generation.
+Database: PostgreSQL with the pgvector extension. This stores:
+ConnectedAccount details (including (currently plaintext) credentials for email providers, user's LLM configuration).
+Email content, metadata, AI-extracted features (structured JSON and individual fields), and 768-dimensional vector embeddings.
+Task details, links to source emails, AI-derived attributes, and 768-dimensional vector embeddings.
+Other tables for EmailSubscription (real-time sync), UserRule, FeedbackLog, UserTaskInteraction, UserAdaptationProfile.
+Message Broker/Cache: Redis (for RQ and potentially other caching).
+Local AI Processing: Ollama running on the host machine, serving models like llama3 (for chat/analysis) and nomic-embed-text (for 768-dim embeddings). The system is designed to be configurable for other LLM providers as well.
+4. Current Development State & Focus (as of May 20, 2025):
+
+The backend data pipeline (connecting to Gmail via IMAP/App Password, syncing emails, full AI processing via RQ/Ollama, task generation, embedding storage in PostgreSQL/pgvector) has been reported as largely functional and has undergone significant testing and verification.
+Many core frontend UI components and pages (for auth, task management, search, settings, HITL, 2-way sync actions, personalization insights) have been implemented in React.
+Current Challenge/Focus: Ensuring robust end-to-end functionality and stability, particularly the reliable interaction between the React frontend and the FastAPI backend for all core user flows. The last few interactions have been centered around diagnosing and fixing issues in this frontend-backend integration or ensuring the backend data pipeline is correctly populating the database for the frontend to consume.
+Security Model: Currently operating in a "no app auth" mode for simplified local development, with a single implicit user. All external service credentials (App Passwords, LLM keys) are stored plaintext with TODO: SECURITY markers. Re-implementing robust authentication (JWTs for app sessions) and encryption for all sensitive data at rest is a critical pending phase before any wider use.
+5. Key Goals for a New AI Coder Onboarding Now:
+
+Understand this existing architecture and the current state.
+Help thoroughly test and stabilize the complete end-to-end user flows, from UI interaction through backend processing and back to UI updates.
+Assist in fixing any remaining bugs or inconsistencies in the implementation.
+Contribute to the remaining development chunks, which include more comprehensive testing, finalizing any missing UI pieces, and then the full "Production Readiness" phase (security hardening, deployment configuration, final documentation).
+This summary should give another AI Coder a good starting point to understand the project's scope, technology, current status, and immediate goals.

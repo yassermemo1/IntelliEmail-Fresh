@@ -1,0 +1,54 @@
+"Hello AI Coder,
+
+In the 'Comprehensive Technical Overview' you provided, and in our design for user-configurable AI providers, the system should dynamically use the LLM (and specific model) chosen by the user in their settings.
+
+However, I've noticed (or it was shown in an example like the analyzeEmailsWithAI function or the default OpenAI case in server/routes/ai.ts) that a specific model like gpt-4o might still be hardcoded as the model for core email analysis/feature extraction, rather than dynamically using the user's configured chat model for their selected provider (OpenAI, Anthropic, Perplexity, Ollama).
+
+This needs to be corrected to fully implement the user-configurable LLM feature.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Thursday, May 22, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Chunk:
+Ensure that all primary LLM calls for email analysis and feature extraction (e.g., within analyzeEmailsWithAI or your main NlpService/AIService methods that perform chat completions) dynamically use the LLM provider and model name specified in the current user's settings (from the ai_settings table or User.llm_config_details). It should also gracefully fall back to a system-wide default if no user configuration is found.
+
+Detailed Requirements & Verification:
+
+Review Core AI Analysis Function(s) (e.g., analyzeEmailsWithAI in server/routes/ai.ts or equivalent logic in aiService.ts / NlpService):
+
+Action: Identify the exact function(s) responsible for sending email content to an LLM for feature extraction (summary, task suggestions, categorization, etc.).
+Ensure Logic:
+a. Fetch User's LLM Configuration: Before making an LLM call, this function must fetch the current user's active LLM settings (e.g., from the ai_settings table or User.llm_config_details). This includes selected_provider, and provider-specific details like openai_chat_model, anthropic_model_name, perplexity_model_name, ollama_chat_model, API keys, and base URLs if applicable.
+b. Dynamic Client & Model Selection: Use your LLMClientFactory (or similar logic) to get an instance of the correct LLM client based on the user's selected_provider.
+c. Pass Correct Model Name: When making the chat.completions.create (or equivalent) call, the model parameter must be dynamically set based on the model name retrieved from the user's settings for that provider (e.g., userSettings.openaiChatModel if provider is OpenAI, userSettings.ollamaChatModel if Ollama, etc.). It should not be hardcoded to "gpt-4o" or any other single model if the user has a preference set.
+d. System Default Fallback: If the user has no LLM configuration set, or if their specified model is invalid for the chosen provider:
+The system should gracefully fall back to using a system-wide default LLM provider and model (e.g., defined in your main application configuration like .env or app/core/config.ts).
+Log a warning when a fallback occurs.
+Verify LLMFactoryService and Provider Clients:
+
+Ensure your LLMFactoryService correctly passes through or uses the specific model names provided from the user's configuration when initializing or calling the different LLM clients (OpenAI, Anthropic, Perplexity, Ollama).
+Testing and Verification (AI Coder to perform and describe how I can also verify):
+
+Scenario 1 (User Configured OpenAI with a specific model, e.g., "gpt-3.5-turbo"):
+Set up a user's ai_settings to use OpenAI and model "gpt-3.5-turbo".
+Process an email for this user.
+Verify (e.g., via detailed logging of the API request to OpenAI, or by inspecting the model parameter passed to the OpenAI client): Was "gpt-3.5-turbo" actually used for the chat completion call?
+Scenario 2 (User Configured Ollama with llama3):
+Set up a user's ai_settings to use Ollama and model llama3.
+Process an email for this user.
+Verify: Was Ollama with the llama3 model actually called? Check Ollama server logs if possible, or log the request details from your aiService.ts.
+Scenario 3 (User Configured Anthropic Claude):
+Similar test, verifying the correct Anthropic model is called.
+Scenario 4 (User Configured Perplexity):
+Similar test, verifying the correct Perplexity model is called.
+Scenario 5 (User has NO configuration - Fallback):
+Ensure a user has no ai_settings record or their settings are invalid.
+Process an email for this user.
+Verify: Does the system fall back to the defined system-wide default LLM (e.g., as specified in .env), and is this logged?
+Deliverables for this Chunk:
+
+Code modifications in aiService.ts (or equivalent), server/routes/ai.ts, and potentially the LLMFactoryService to ensure dynamic model usage.
+Clear explanation of how the system default LLM is configured and used as a fallback.
+Detailed steps and expected log outputs for me to verify each of the testing scenarios above.
+This fix is crucial to ensure the 'User-Configurable AI Selection' feature is truly functional and that we are not unintentionally overriding user preferences with hardcoded model names.

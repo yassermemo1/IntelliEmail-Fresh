@@ -1,0 +1,63 @@
+Hello AI Coder,
+
+Fantastic work on optimizing the embedding generation pipeline with HNSW indexes, batch processing, and text truncation fixes! The system's ability to handle embeddings for both OpenAI and Ollama is also a great step.
+
+Now, let's ensure our EmailChainService is fully operational and robustly uses these embeddings (and other methods) to find related emails, and that this service is effectively integrated into our RAG pipeline to enhance AI processing.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Tuesday, May 20, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Chunk:
+
+Fix any remaining issues with storing pre-computed semantic relationships in the email_semantic_links table (via the updateEmailRelationships background task/function).
+Thoroughly test all correlation methods within the findRelatedEmails function of EmailChainService: Thread ID matching, Subject Line Similarity, and Live Semantic Similarity (vector search).
+Ensure findRelatedEmails correctly combines, de-duplicates, and ranks results from these methods up to max_results.
+Verify that the extract_features_from_email RQ task (our RAG pipeline) correctly calls EmailChainService.findRelatedEmails() and effectively uses the returned contextual emails to augment the prompt sent to the LLM (Ollama).
+Prerequisites:
+
+The embedding generation pipeline is robust: emails and tasks tables have embedding_vector VECTOR(768) columns with HNSW indexes, and these are being populated correctly by Ollama (e.g., nomic-embed-text).
+The EmailChainService has foundational implementations for Thread ID, Subject, and Semantic correlation.
+The email_semantic_links table exists for storing pre-computed relationships.
+The extract_features_from_email RQ task is set up to potentially receive RAG context.
+Detailed Requirements & Verification Steps:
+
+Fix and Test Storage of Pre-Computed Semantic Relationships:
+
+Action: Investigate and fix any issues preventing the updateEmailRelationships background task/function (e.g., in app/tasks/ai_linking_tasks.py) from correctly populating the email_semantic_links table with pairs of semantically similar emails and their scores.
+Verification (AI Coder to perform and report, or guide me):
+Run the updateEmailRelationships task for a test ConnectedAccount with several varied, embedded emails.
+Provide a psql query to check the contents of the email_semantic_links table. We should see new link records being created.
+Confirm that findRelatedEmails can now leverage these pre-computed links if that logic is part of its prioritized retrieval.
+Thoroughly Test findRelatedEmails Correlation Methods:
+
+Subject Line Similarity:
+Setup: Ensure test emails exist with similar (but not identical, and different thread_ids) cleaned subjects.
+Test: Call findRelatedEmails. Verify it returns these emails. Log the cleaned subjects and similarity scores if using fuzzy matching.
+Live Semantic Similarity (Vector Search):
+Setup: Ensure test emails exist that are thematically similar but have different subjects/threads, with embeddings populated.
+Test: Call findRelatedEmails (perhaps in a scenario where Thread ID/Subject don't yield enough results). Verify it returns semantically similar emails based on vector search. Log similarity scores.
+Combined Results & Ranking:
+Setup: Test with an email that has matches via Thread ID, others via subject, and others only semantically.
+Test: Call findRelatedEmails. Verify the order of results (Thread ID first), de-duplication, and adherence to max_results.
+Verify Integration into RAG Pipeline (extract_features_from_email task):
+
+Code Review: Confirm that extract_features_from_email calls EmailChainService.findRelatedEmails() for the current email being processed.
+Log Verification (CRITICAL):
+When extract_features_from_email processes an email:
+Add/ensure detailed logging to show:
+That findRelatedEmails was called.
+Which related emails (IDs and subjects) were returned by findRelatedEmails.
+The exact (or a significant, representative snippet of) RAG context (derived from these related emails) that is being formatted and added to the prompt for the LLM (Ollama).
+This allows us to see if the RAG context is being correctly generated and used.
+Test Impact on LLM Output (Qualitative):
+
+Setup: Process two similar new emails: one without RAG context (temporarily disable the RAG call in extract_features_from_email for this one email) and one with RAG context (where relevant historical emails/tasks exist).
+Observe: Compare the AI-extracted features (summary, suggested tasks, category, priority) for both. Does the email processed with RAG context show demonstrably better, more context-aware, or more personalized results from Ollama? (This is a qualitative check).
+Deliverables for this Chunk:
+
+Fixes to the updateEmailRelationships function and successful population of email_semantic_links.
+Confirmation (with test scenarios and log evidence/database checks) that all three correlation methods (Thread ID, Subject Similarity, Live Semantic Similarity) in findRelatedEmails are working correctly and results are combined/ranked appropriately.
+Clear log evidence from the extract_features_from_email task showing that it calls findRelatedEmails and incorporates the retrieved context into the LLM prompt.
+(Optional but helpful) A brief qualitative assessment if the RAG context appears to improve LLM output for a sample email.
+This will ensure our EmailChainService is fully operational and our RAG pipeline is effectively leveraging multi-faceted email relationships to enhance AI processing. Good luck!

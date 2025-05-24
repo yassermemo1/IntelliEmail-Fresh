@@ -1,0 +1,60 @@
+Hello AI Coder,
+
+Absolutely fantastic work on resolving the service import/export issues and implementing the robust automated task embedding generation (including on update)! The addition of maintenance tools for embeddings is also excellent. This means our backend, from email ingestion through AI processing to task creation and embedding of both emails and tasks, is now very solid.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Wednesday, May 21, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Next Major Phase:
+Connect, thoroughly test, and refine the React frontend application to ensure all key user flows are working seamlessly with our now stable and feature-rich backend data pipeline. This is an end-to-end integration and testing phase focused on the user experience through the React UI.
+
+Prerequisites:
+
+The entire backend pipeline (Email Sync -> Store Email -> Embed Email -> Extract AI Features -> Generate Task -> Embed Task) is fully operational with RQ (or your Node.js async mechanism) and Ollama, persisting all data correctly in PostgreSQL/pgvector (768-dim embeddings).
+Critical backend fixes (service imports, task embedding generation) are complete.
+The React frontend has foundational components and pages for Authentication (simplified/bypassed, but with UIs for connecting accounts), Task Management, Semantic Search, User Settings, HITL Review, 2-Way Sync actions, and Activity Notifications (as per your previous detailed frontend updates).
+The frontend apiClient.ts (with apiWrapper for standardized responses) and associated service files are in place.
+All services (Backend API, React dev server, PostgreSQL, Redis, RQ workers, Ollama) are running locally.
+Key Frontend Areas and User Flows for Integration and E2E Testing (React UI Focus):
+
+Account Connection & Initial Sync (React UI in Settings):
+
+Test: Use the React UI to connect your test Gmail account (IMAP/App Password) and a test EWS account.
+Verify: ConnectedAccount records created; initial sync triggers and completes fully (emails stored, embeddings/AI features generated, tasks created, task embeddings generated). React UI correctly displays connected accounts and sync status. "Disconnect Account" works.
+Dashboard & Task List Display (DashboardPage.tsx, TasksPage.tsx):
+
+Test: After sync, navigate to dashboard and task list.
+Verify: Real tasks (from Gmail/EWS, processed by Ollama) display with all AI-derived details (priority, category, due date, source email context, confidence, tags). Filtering/sorting works on this live data. Dashboard stats are accurate.
+Task Creation & Modification (Manual - TaskFormModal.tsx):
+
+Test: Manually create tasks. Edit AI-generated and manual tasks (title, priority, due date, description, status, category, tags). Mark complete.
+Verify: UI reflects changes, backend persists them, new manual tasks get embeddings. user_task_interactions logged.
+Semantic Search (SearchPage.tsx, SearchBar.tsx):
+
+Test: Perform natural language searches for content expected in your synced emails and tasks.
+Verify: Relevant email and task results (based on 768-dim Ollama embeddings) are displayed with highlighting. Clicking results navigates to details.
+HITL Review Interface (ReviewPage.tsx):
+
+Setup: Ensure some AI-generated tasks are flagged for HITL review.
+Test: Navigate to review page. View items. Approve, reject, modify & approve a task.
+Verify: UI reflects actions, task status updates in DB and main list. feedback_logs capture actions.
+2-Way Sync Actions from UI (EmailSyncActions.tsx, etc.):
+
+Test: Use UI buttons to "Mark as Read/Unread on Server" and "Archive Email on Server" for synced emails.
+Verify: UI gives feedback. Manually check actual test Gmail/EWS account to confirm server-side action.
+Activity Notification System (ActivityNotification.tsx):
+
+Test: Send a new email to a connected account while the app is open.
+Verify: Real-time sync processes it. Frontend UI shows "new activity" notification. Refreshing lists shows new items.
+User Settings UI (LLM Config, Notifications, Rules):
+
+Test: Interact with settings for LLM config (should reflect Ollama if that's the default), notifications, and user rules.
+Verify: Changes are saved and (where applicable, like LLM config change) affect subsequent backend processing (check backend logs).
+Focus for AI Coder:
+
+Identify and Fix: Any remaining bugs, 404s, 500s, or data display issues when interacting with these flows from the React frontend.
+Ensure apiWrapper is used consistently and handles all backend responses correctly.
+Verify State Management: Ensure React UI state updates correctly and stays in sync with backend data.
+Polish UX: Smooth out transitions, loading states, and error messages.
+This phase is about achieving a fully interactive, data-driven, and stable V1 user experience on the React frontend. Please start by thoroughly testing the Account Connection and the Task List/Dashboard display with live data. Report your findings and any issues encountered."

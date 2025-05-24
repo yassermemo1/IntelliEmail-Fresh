@@ -1,0 +1,30 @@
+Hello AI Coder,
+Your analysis of the current email data and the creation of the analyzeRealEmails() script with the enhanced LLM prompt and structured JSON output for tasks is excellent! This directly implements the '10x better' task extraction logic we need. The finding that our current database content is mostly marketing/promotional also explains why task quality might have seemed low.
+Now, let's integrate this powerful new extraction logic into our main AI processing pipeline and test it with more suitable email content.
+Project: AI-Powered Email Task Manager (Business Critical)
+Focus for this Chunk:
+ * Integrate the enhanced task extraction logic (using the detailed system prompt for gpt-4o and expecting the rich structured JSON for tasks) into the primary extract_features_from_email RQ job (via NlpService/AIService).
+ * Ensure the generate_tasks_from_email_features RQ job correctly uses this rich JSON output to create detailed Task records in the database.
+ * Test this entire enhanced pipeline with a few sample business-oriented emails.
+Detailed Requirements:
+ * Refactor NlpService/AIService and extract_features_from_email RQ Job:
+   * The core logic from your analyzeRealEmails() script (specifically, the construction of the detailed system prompt asking for an array of rich task objects with fields like suggested_title, detailed_description, source_snippet, suggested_priority_level, extracted_deadline_text, suggested_category, confidence_in_task_extraction, etc., and the specific handling for 'marketing_promotional' or 'non_actionable' classifications) must become the standard method within your NlpService (or AIService) for email feature extraction.
+   * The extract_features_from_email RQ job must call this enhanced service method.
+   * It must correctly parse the returned rich JSON and store:
+     * The array of suggested rich task objects into emails.ai_suggested_tasks_json.
+     * Other overall email classifications (like email_classification if non-actionable, overall summary, sentiment) into appropriate ai_... fields in the emails table.
+ * Refactor generate_tasks_from_email_features RQ Job:
+   * This task must now read the array of rich task objects from emails.ai_suggested_tasks_json.
+   * For each object, it should create a Task record in the database, populating Task.title with suggested_title, Task.description with detailed_description, Task.priority with suggested_priority_level, Task.category with suggested_category, etc.
+   * It should use your DeadlineParserService for extracted_deadline_text.
+   * It should store the full individual task suggestion JSON object from the array into Task.original_ai_suggestion_json.
+   * It should set Task.requires_hitl_review based on confidence_in_task_extraction.
+ * Testing with Business-Oriented Emails:
+   * User Action (I will do this): I will ensure 2-3 new, actual business-style test emails (that should contain clear tasks, deadlines, and distinct information) are sent to my connected test Gmail account.
+   * AI Coder Action: Once I confirm these emails are sent, please trigger the full sync and processing pipeline for them.
+   * Verification (AI Coder to perform and report, or guide me):
+     * RQ Worker Logs: Show logs from nlp and task_creation workers for these specific emails. We need to see the detailed prompt being sent to gpt-4o (including RAG context if applicable), the rich JSON response, and successful parsing.
+     * Database (emails table): For these business emails, provide psql output showing ai_suggested_tasks_json (or ai_classification_details_json) populated with the detailed, structured task objects from gpt-4o.
+     * Database (tasks table): Provide psql output showing the Task records created from these emails. Verify that their title, description, priority, category, due_date are specific and directly reflect the rich output from gpt-4o. They should not be generic.
+The API endpoint you proposed for testing with arbitrary email content is a good idea for a utility, but for now, let's focus on making the main asynchronous pipeline use this enhanced extraction logic for emails coming through the regular sync process.
+This is about ensuring the core AI engine produces truly valuable, detailed tasks from real emails. Good luck!

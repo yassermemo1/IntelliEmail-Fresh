@@ -1,0 +1,32 @@
+Here's the typical workflow in your application:
+
+Email Data Exists in PostgreSQL:
+
+Your email synchronization process (using RQ workers and your GmailService or ExchangeEWSService) fetches emails.
+The content (e.g., subject, body text) is stored in regular TEXT or VARCHAR columns in your emails table in PostgreSQL.
+Example: emails.subject (TEXT), emails.body_text (TEXT)
+Application Code (RQ Worker for NLP) Reads the Text:
+
+An RQ worker (specifically one processing tasks from the nlp queue, like your generate_embedding_for_email task) picks up a job for an email that needs an embedding.
+This Python code fetches the relevant text fields (e.g., email.subject and email.body_text) from the emails table using SQLAlchemy.
+It then prepares this text for the embedding model (e.g., concatenates subject and body, cleans it, truncates it to fit model limits).
+Application Code Calls the Embedding Model (Ollama nomic-embed-text):
+
+Your NlpService (or AIService) in Python takes the prepared text.
+It makes an API call to your local Ollama instance (e.g., http://localhost:11434/api/embeddings) with the text and specifies the nomic-embed-text model.
+Ollama (nomic-embed-text) does the "conversion": It processes the text and returns a vector embedding, which is essentially a list of numbers (floats). For nomic-embed-text as configured for 768 dimensions, this will be a list of 768 floating-point numbers, like [0.123, -0.456, ..., 0.789].
+Application Code Stores the Vector in PostgreSQL (pgvector column):
+
+The RQ worker receives this list of floats (the embedding vector) back from NlpService.
+It then updates the corresponding Email record in your PostgreSQL database.
+The emails table has a column, let's say embedding_vector, which is defined with the special data type VECTOR(768) provided by the pgvector extension.
+Python
+# In your SQLAlchemy Email model (app/models/email_model.py):
+# from pgvector.sqlalchemy import VECTOR
+# embedding_vector = Column(VECTOR(768), nullable=True)
+When you assign the Python list of floats to email.embedding_vector and commit the SQLAlchemy session, the pgvector Python client library (which integrates with SQLAlchemy) handles the conversion of this Python list into the specific binary format that PostgreSQL uses to store vector data efficiently.
+Python
+# In your RQ task (e.g., generate_embedding_for_email)
+# embedding_list_from_ollama = [0.123, -0.456, ...] 
+email_record.embedding_vector = embedding_list_from_ollama
+await session.commit() 

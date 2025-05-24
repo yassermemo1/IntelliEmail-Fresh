@@ -1,0 +1,43 @@
+Hello AI Coder,
+
+We've discussed and implemented vector embeddings for semantic search and RAG capabilities using Ollama (nomic-embed-text for 768-dimensional vectors) and PostgreSQL with the pgvector extension.
+
+To ensure we have a precise understanding of your specific implementation, please provide a detailed technical report covering the following aspects of how embeddings and vector operations are currently set up and used in our AI-Powered Email Task Manager.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Wednesday, May 21, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Please Detail Your Implementation For:
+
+Embedding Generation Process:
+
+Service Responsible: Which Python service class (e.g., NlpService in app/services/nlp_service.py or AIService) is directly responsible for making calls to the Ollama nomic-embed-text model to generate embeddings?
+Input Text Construction:
+For emails: What specific fields from the Email model (e.g., subject, cleaned body_text) are concatenated or used to create the input text sent to nomic-embed-text? Show the relevant code snippet.
+For tasks: What specific fields from the Task model (e.g., title, description) are used to create the input text? Show the relevant code snippet.
+Ollama API Call: Briefly show how the call to Ollama's embedding endpoint (e.g., http://localhost:11434/api/embeddings with model nomic-embed-text) is made and how the 768-dimensional vector list is retrieved from the response.
+Database Storage of Embeddings:
+
+SQLAlchemy Models:
+Confirm the exact definition of the embedding_vector column in the Email SQLAlchemy model (app/models/email_model.py). It should be Column(VECTOR(768), nullable=True).
+Confirm the exact definition of the embedding_vector column in the Task SQLAlchemy model (app/models/task_model.py). It should also be Column(VECTOR(768), nullable=True).
+Data Type in PostgreSQL: Confirm that your Alembic migrations create these columns with the PostgreSQL native vector(768) type.
+Saving Logic: Show a code snippet from the relevant RQ/Celery task (e.g., generate_embedding_for_email or generate_embedding_for_task_record in app/tasks/nlp_tasks.py) where the Python list of floats (the embedding) is assigned to the SQLAlchemy model's embedding_vector attribute and then committed to the database.
+Vector Indexing in PostgreSQL:
+
+Alembic Migrations: Which Alembic migration script creates the indexes on emails.embedding_vector and tasks.embedding_vector?
+Index Type & Operator Class: Confirm that HNSW indexes are being used. What operator class is specified (e.g., vector_cosine_ops, vector_l2_ops)? Please show the op.create_index(...) calls from the migration script for these vector columns.
+Usage of Embeddings in the Application:
+
+Semantic Search Service (app/services/semantic_search_service.py):
+When performing a similarity search (e.g., in find_relevant_emails_for_query or a general semantic search function), show the core SQLAlchemy query or raw SQL query snippet that uses a pgvector distance/similarity operator (e.g., <=>, L2Distance, CosineDistance) against the embedding_vector columns.
+How is the query vector (embedding of the search term) generated and passed to this query?
+RAG Context Retrieval (in app/tasks/nlp_tasks.py -> extract_features_from_email):
+Confirm that this task calls the SemanticSearchService (or similar) to retrieve relevant historical emails/tasks using vector similarity.
+Briefly explain how the retrieved items (based on their embeddings) are used to form the context for the LLM prompt.
+Asynchronous Processing (RQ Tasks):
+
+List the specific RQ tasks involved in the embedding pipeline (e.g., generate_embedding_for_email, generate_embedding_for_task_record).
+Explain how these tasks are queued and chained after an email is synced or a task is created.
+Please provide code snippets where appropriate to illustrate your implementation. This will give us a clear 'as-built' view of our vector embedding system. Thank you!

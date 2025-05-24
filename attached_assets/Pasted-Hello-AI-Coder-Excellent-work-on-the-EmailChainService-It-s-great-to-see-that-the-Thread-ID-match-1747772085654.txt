@@ -1,0 +1,50 @@
+Hello AI Coder,
+
+Excellent work on the EmailChainService! It's great to see that the Thread ID matching is working perfectly and successfully identified all related emails in our test case.
+
+You noted a 'small issue with storing the relationships in our database' (referring to the pre-computed semantic links for the updateEmailRelationships function and email_semantic_links table). Let's address this and then ensure all aspects of the findRelatedEmails function are robust.
+
+Project: AI-Powered Email Task Manager (Business Critical)
+Current Date for Context: Tuesday, May 20, 2025
+Current Location Context: Riyadh, Saudi Arabia
+
+Focus for this Chunk:
+
+Fix the issue with storing pre-computed semantic relationships in the email_semantic_links table (via the updateEmailRelationships background task/function).
+Thoroughly test all correlation methods within the findRelatedEmails function: Thread ID (already good), Subject Line Similarity, and Live Semantic Similarity (vector search).
+Ensure findRelatedEmails correctly combines and ranks results from these methods.
+Confirm integration of findRelatedEmails into the RAG pipeline (i.e., called by extract_features_from_email task).
+Detailed Requirements & Verification Steps:
+
+Fix Storage of Pre-Computed Semantic Relationships:
+
+Action: Investigate and fix the "small issue" preventing the updateEmailRelationships background task/function from correctly populating the email_semantic_links table with pairs of semantically similar emails and their scores.
+Verification:
+Run the updateEmailRelationships task/function for a test ConnectedAccount with several embedded emails.
+Provide a psql query to check the contents of the email_semantic_links table. We should see new link records being created with appropriate email_id_a, email_id_b, and similarity_score.
+Test Subject Line Similarity in findRelatedEmails:
+
+Setup: Ensure you have a few test emails in a ConnectedAccount that have very similar (but not identical) cleaned subjects but different thread_ids.
+Action: Call findRelatedEmails for one of these emails.
+Verification: Does the function return the other emails with similar subjects? How is "similarity" determined (e.g., exact match after cleaning, fuzzy match score)? Log the cleaned subjects being compared.
+Test Live Semantic Similarity (Vector Search) in findRelatedEmails:
+
+Setup: Ensure you have test emails in a ConnectedAccount that are thematically similar but have different subjects and thread_ids. Ensure their embedding_vectors are populated.
+Action: Call findRelatedEmails for one of these emails, perhaps configuring it (or testing a scenario) where Thread ID and Subject Similarity might not return enough results, forcing it to use semantic similarity.
+Verification: Does the function return semantically similar emails based on vector search? Log the similarity scores of the returned items.
+Test Combined Results & Ranking in findRelatedEmails:
+
+Setup: Create a scenario where an email might have matches via Thread ID, other emails with similar subjects, and other distinct emails that are only semantically similar.
+Action: Call findRelatedEmails.
+Verification: How are the results ordered? Are Thread ID matches prioritized? Are duplicates handled? Does it correctly limit to max_results?
+Confirm Integration into RAG Pipeline (extract_features_from_email task):
+
+Code Review: Show the section in extract_features_from_email where EmailChainService.findRelatedEmails() is called.
+Log Verification: When extract_features_from_email processes an email, add temporary logging (or show existing logs) to confirm:
+findRelatedEmails was called for the current email.
+What related emails (if any) were returned by the service.
+How this context is being formatted and included in the prompt sent to the LLM (Ollama).
+Testing & Verification for You (the User) After AI Coder Implements/Fixes:
+
+I will provide you with psql queries and log inspection points to verify the above, similar to previous verification chunks.
+This will ensure our EmailChainService is fully operational and effectively enhancing our RAG pipeline with comprehensive contextual information. Please focus on fixing the pre-computed link storage first, then on testing the different facets of findRelatedEmails."
